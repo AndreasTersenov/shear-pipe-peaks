@@ -7,18 +7,17 @@ parser = argparse.ArgumentParser(
     epilog="""                                                                
  
 SCRIPT NAME:                                                                   
-  test.py
+  cov_script_for_scripts_SLURM.py
 
-outputs a bash script for each cosmology to be sent to the bash queue    
+outputs a bash script for each noise realization to be sent to the bash queue    
 """
 )
 parser.add_argument('job_name',type=str, help='job identifier')
 parser.add_argument('work_dir',type=str, help='work directory for outputs')
 parser.add_argument('run',type=str, help='run identifier')
-parser.add_argument('n_cosmo',type=int, help='number of cosmologies')
-parser.add_argument('n_tiles',type=int, help='number of tiles in footprint')
 parser.add_argument('map_method',type=str, help='mass mapping method')
-parser.add_argument('random_seed', type=int, nargs='?', default=None, help='random seed for noise generation. If not provided, random seed is None')
+parser.add_argument('n_tiles',type=int, help='number of tiles in footprint')
+parser.add_argument('n_realizations',type=int, help='number of noise realizations')
 args = parser.parse_args()
 
 # give meaningful variable names to the command line                           
@@ -26,36 +25,31 @@ args = parser.parse_args()
 job_name = args.job_name
 work_dir = args.work_dir  
 run = args.run                                                                 
-n_cosmo = args.n_cosmo
 map_method = args.map_method
 n_tiles = args.n_tiles
-random_seed = args.random_seed
+n_realizations = args.n_realizations
 
 # define directories
-script_output_directory=work_dir+'/scripts_run_'+run+'_'+map_method+'/seed_'+str(random_seed)
-# if the output directory is not present create it.
-if not os.path.exists(script_output_directory): 
-    os.makedirs(script_output_directory)
-    
-output_directory=work_dir+'/output_run_'+run+'_'+map_method+'/seed_'+str(random_seed)
+script_output_directory=work_dir+'/scripts_run_'+run+'_'+map_method
+output_directory=work_dir+'/output_run_'+run+'_'+map_method
 # if the output directory is not present create it.
 if not os.path.exists(output_directory): 
+    os.makedirs(script_output_directory)
     os.makedirs(output_directory)
 
 # make scripts
-for cosmo in np.arange(n_cosmo):
-    cosmo = str(cosmo).zfill(2)  # Converts cosmo to string and pads with leading zeros
-    fileroot =  '%(script_output_directory)s/%(run)s%(cosmo)s'% locals()
+for real in np.arange(n_realizations):
+    real = str(real)
+    fileroot =  '%(script_output_directory)s/%(run)s%(real)s'% locals()
     filename = fileroot+'.sh'
     print(filename)
-    
     with open(filename, 'w') as f:
         f.write("#!/bin/bash\n")
-        f.write("#SBATCH --partition=comp\n")
+        f.write("#SBATCH --partition=pscomp\n")
         f.write("#SBATCH --output=%s.o\n" % fileroot)
         f.write("#SBATCH --nodes=1\n")
         f.write("#SBATCH --ntasks-per-node=%d\n" % n_tiles)
-        f.write("#SBATCH --time=5:00:00\n")
+        f.write("#SBATCH --time=12:00:00\n")
         f.write("#SBATCH --mem=32GB\n")
         f.write("#SBATCH --job-name=%s\n" % job_name)
         f.write("#SBATCH --mail-type=END\n")
@@ -66,11 +60,9 @@ for cosmo in np.arange(n_cosmo):
         f.write("echo $NODES\n")
         f.write("NPROCS=$(scontrol show nodes $SLURM_JOB_NODELIST | wc -l)\n")
         f.write("echo 'This job has allocated $NPROCS nodes'\n\n")
-        
+
         f.write("module load healpix/3.82-ifx-2024.0\n\n")
+
+        f.write("~/miniconda3/envs/pysap/bin/python /home/tersenov/shear-pipe-peaks/scripts/cov_paral_cs.py %s /home/tersenov/shear-pipe-peaks/input/master_file_cov.txt %s %d %s %s\n" % (real, output_directory, n_tiles, map_method, run))
     
-        if random_seed is not None:
-            f.write("~/miniconda3/envs/pysap/bin/python /home/tersenov/shear-pipe-peaks/scripts/merged_bins_data_processing.py %s /home/tersenov/shear-pipe-peaks/input/master_file.txt %s %d %s %s %s\n" % (cosmo, output_directory, n_tiles, map_method, run, random_seed))
-        else:
-            f.write("~/miniconda3/envs/pysap/bin/python /home/tersenov/shear-pipe-peaks/scripts/merged_bins_data_processing.py %s /home/tersenov/shear-pipe-peaks/input/master_file.txt %s %d %s %s\n" % (cosmo, output_directory, n_tiles, map_method, run))
-        
+    

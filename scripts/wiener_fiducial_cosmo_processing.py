@@ -22,12 +22,13 @@ SIZE_Y_DEG = 10.
 PIX_ARCMIN = 1.
 SHAPE_NOISE = 0.44
 NSCALES = 6
-MIN_SNR = -2
-MAX_SNR = 6
+MIN_SNR = -0.4
+MAX_SNR = 0.6
 NBINS = 21
 NBINS_L1 = 20
 
-def make_shear_map(CATALOG_FILE, add_noise=True, random_seed=None):
+
+def make_shear_map(CATALOG_FILE, add_noise=True):
     """
     Generates shear maps from a catalog file, with an option to add Gaussian noise.
 
@@ -65,10 +66,6 @@ def make_shear_map(CATALOG_FILE, add_noise=True, random_seed=None):
     # noise_map = sigma_noise * np.random.randn(sigma_noise.shape[0], sigma_noise.shape[1])
 
     e1map, e2map = bin2d(x, y, npix=(Nx, Ny), v=(g1_sim, g2_sim)) 
-    
-    # Set random seed if provided
-    if random_seed is not None:
-        np.random.seed(random_seed)
 
     if add_noise:
         # Add noise only if requested
@@ -159,7 +156,6 @@ def make_mass_map(e1map, e2map, mask, sigma_noise, method='ks'):
         d.ps1d = ps1d        
         mcalens, _, _, _ = M.sparse_wiener_filtering(d, d.ps1d, Nsigma=3, niter=M.DEF_niter, Inpaint=True, Bmode=True)
         return mcalens
-        
 
 def summary_statistics(mass_map, sigma_noise, mask, nscales=NSCALES, min_snr=MIN_SNR, max_snr=MAX_SNR, nbins=NBINS, nbins_l1=NBINS_L1):
     """
@@ -194,11 +190,11 @@ def summary_statistics(mass_map, sigma_noise, mask, nscales=NSCALES, min_snr=MIN
     H.get_mono_scale_peaks(mass_map, sigma_noise, smoothing_sigma=12, mask=mask)
     H.get_wtpeaks(Mask=mask)
     pc = H.Peaks_Count
-    H.get_wtl1(nbins_l1*2, Mask=mask, min_snr=-6, max_snr=6)
+    H.get_wtl1(nbins_l1*2, Mask=mask, min_snr=-0.6, max_snr=0.6)
 
     return H.Mono_Peaks_Count, H.Peaks_Count, H.l1norm
 
-def process_tile(filename, mass_mapping_method='ks', add_noise=False, save_mass_map=False, mass_map_output_file=None, random_seed=None):
+def process_tile(filename, mass_mapping_method='ks', add_noise=False, save_mass_map=False, mass_map_output_file=None):
     """
     Processes a single tile: generates shear and mass maps and computes summary statistics.
 
@@ -218,7 +214,7 @@ def process_tile(filename, mass_mapping_method='ks', add_noise=False, save_mass_
     Tuple[np.ndarray, np.ndarray, np.ndarray]
         Tuple of summary statistics: Mono_Peaks_Count, Peaks_Count, l1norm.
     """
-    e1map, e2map, mask, sigma_noise = make_shear_map(filename, add_noise=add_noise, random_seed=random_seed)
+    e1map, e2map, mask, sigma_noise = make_shear_map(filename, add_noise=add_noise)
     mass_map = make_mass_map(e1map, e2map, mask, sigma_noise, method=mass_mapping_method)
     peaks_mono, peaks_multi, l1norm = summary_statistics(mass_map, sigma_noise, mask)
 
@@ -274,25 +270,24 @@ def worker(args):
     Parameters:
     args : tuple
         Arguments to pass to process_tile, including filename, mass mapping method,
-        add_noise flag, save_mass_map flag, mass_map_output_file path, and random seed.
+        add_noise flag, save_mass_map flag, and mass_map_output_file path.
 
     Returns:
     Tuple[np.ndarray, np.ndarray, np.ndarray]
         The summary statistics from processing the tile.
     """
-    filename, mass_mapping_method, add_noise, save_mass_map, run_number, random_seed = args
+    filename, mass_mapping_method, add_noise, save_mass_map, run_number = args
     
     # Construct output filename for the mass map
     base_name, file_ext = os.path.splitext(filename)
     new_file_ext = '.npy'
-    mass_map_output_file = f"{base_name}_{mass_mapping_method}_run{run_number}_rs{random_seed}{new_file_ext}" if save_mass_map else None
+    mass_map_output_file = f"{base_name}_{mass_mapping_method}_run{run_number}{new_file_ext}" if save_mass_map else None
     
     # Simulate processing the tile
-    summary_statistics = process_tile(filename, mass_mapping_method, add_noise, save_mass_map, mass_map_output_file, random_seed)
-    
+    summary_statistics = process_tile(filename, mass_mapping_method, add_noise, save_mass_map, mass_map_output_file)
     return summary_statistics
 
-def process_footprint(file_list_path, output_dir=None, mass_mapping_method='ks', add_noise=True, save_mass_map=False, num_processes=19, run_number=0, random_seed=None):
+def process_footprint(file_list_path, output_dir=None, mass_mapping_method='ks', add_noise=True, save_mass_map=False, num_processes=19, run_number=0):
     """
     Processes a set of tiles (a footprint) in parallel, averaging summary statistics.
 
@@ -309,10 +304,6 @@ def process_footprint(file_list_path, output_dir=None, mass_mapping_method='ks',
         If True, mass maps are saved.
     num_processes : int
         Number of parallel processes to use.
-    run_number : int
-        Run identifier.
-    random_seed : int, optional
-        Random seed for noise generation.
 
     Returns:
     Tuple[np.ndarray, np.ndarray, np.ndarray]
@@ -321,7 +312,7 @@ def process_footprint(file_list_path, output_dir=None, mass_mapping_method='ks',
     if save_mass_map and output_dir:
         os.makedirs(output_dir, exist_ok=True)
     
-    args = [(filename, mass_mapping_method, add_noise, save_mass_map, run_number, random_seed) for filename in file_list_path]
+    args = [(filename, mass_mapping_method, add_noise, save_mass_map, run_number) for filename in file_list_path]
     print(args)
     
     with Pool(num_processes) as pool:
@@ -346,7 +337,7 @@ def process_footprint(file_list_path, output_dir=None, mass_mapping_method='ks',
     # Return the averaged statistics
     return SS_PC_mean, MS_PC_mean, l1_norm_mean
 
-def process_cosmo(cosmology, master_file_path, output_dir, mass_mapping_method='ks', add_noise=True, save_mass_map=False, num_processes=19, run_number=0, random_seed=None):
+def process_cosmo(cosmology, master_file_path, output_dir, mass_mapping_method='ks', add_noise=True, save_mass_map=False, num_processes=19, run_number=0):
     """
     Processes all tiles for a specific cosmology, generating and saving summary statistics
     for each bin in a specified directory.
@@ -368,8 +359,6 @@ def process_cosmo(cosmology, master_file_path, output_dir, mass_mapping_method='
         Number of processes for parallel execution.
     run_number : int
         Run identifier.
-    random_seed : int, optional
-        Random seed for noise generation.
 
     Returns:
     None
@@ -393,6 +382,8 @@ def process_cosmo(cosmology, master_file_path, output_dir, mass_mapping_method='
                 key = (seed, bin, LOS)
                 file_paths = file_lists.get(key, [])
                 
+                print(file_paths)
+                
                 if not file_paths:
                     print(f"File not found for pattern: {key}")
                     continue  # Skip if no files for this combination
@@ -404,8 +395,7 @@ def process_cosmo(cosmology, master_file_path, output_dir, mass_mapping_method='
                     add_noise,
                     save_mass_map,
                     num_processes,
-                    run_number,
-                    random_seed
+                    run_number
                 )
                 
                 all_results.append((seed, LOS, SS_PC_mean, MS_PC_mean, l1_norm_mean))
@@ -416,35 +406,23 @@ def process_cosmo(cosmology, master_file_path, output_dir, mass_mapping_method='
         results_array = np.array(all_results, dtype=dtype)
         
         # Save the results array for the current bin
-        save_path = os.path.join(output_dir, f"{cosmology}_{bin}_{mass_mapping_method}_run{run_number}_rs{random_seed}.npy")
+        save_path = os.path.join(output_dir, f"{cosmology}_{bin}_{mass_mapping_method}_run{run_number}_fid8.npy")
         np.save(save_path, results_array)
         print(f"Saved: {save_path}")
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Process data for a given cosmology using a specific mass mapping method.')
-    parser.add_argument('cosmology', type=str, help='Identifier for the cosmology being processed.')
-    parser.add_argument('master_file_path', type=str, help='Path to the master file listing all catalog files.')
-    parser.add_argument('output_dir', type=str, help='Directory where summary statistics should be saved.')
-    parser.add_argument('num_tiles', type=int, help='Number of tiles in the footprint.')
-    parser.add_argument('mass_mapping_method', type=str, help='Mass mapping method to use.')
-    parser.add_argument('run_number', type=int, help='Run identifier.')
-    parser.add_argument('random_seed', type=int, nargs='?', default=None, help='Random seed for noise generation. If not provided, random seed is None.')
-    
-    args = parser.parse_args()
 
-    # Assuming master_file_path and output_directory are constants or can be derived from other parameters
-    master_file_path = '/home/tersenov/shear-pipe-peaks/input/master_file.txt'  # Adjust this path as necessary
-    # output_directory = '/n17data/tersenov/SLICS/Cosmo_DES/summary_stats'  # Adjust this path as necessary
+
+if __name__ == "__main__":
+    cosmology = 'fid'
+    master_file_path = '/home/tersenov/shear-pipe-peaks/input/fid_master_file.txt'
+    output_directory = '/n17data/tersenov/SLICS/Cosmo_DES/summary_stats'
 
     process_cosmo(
-        args.cosmology,
+        cosmology,
         master_file_path,
-        # output_directory,
-        args.output_dir,
-        args.mass_mapping_method,
-        True,  # Consider if you want these as command-line arguments too
+        output_directory,
+        'wiener',
         True,
-        args.num_tiles,
-        args.run_number,
-        args.random_seed
-    )
+        True,
+        19,
+        3)
