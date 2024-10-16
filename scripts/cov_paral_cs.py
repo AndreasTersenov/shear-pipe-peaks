@@ -15,6 +15,9 @@ from sp_peaks import plotting
 from multiprocessing import Pool
 import argparse
 
+os.environ["OMP_NUM_THREADS"] = "48"
+os.environ["MKL_NUM_THREADS"] = "48"
+
 # Constants and Parameters
 N_GAL = 7 
 SIZE_X_DEG = 10.
@@ -23,26 +26,32 @@ PIX_ARCMIN = 1.
 SHAPE_NOISE = 0.44
 NSCALES = 6
 # Histogram parameters
-MIN_SNR = -2
+MIN_SNR = -0.4
 MAX_SNR = 6
 NBINS = 21
 NBINS_L1 = 20
+
 
 NUM_REALIZATIONS = 124  # Number of realizations
 
 def compute_statistics(args):
     tile_file, seed, method = args
     
+    # set random seed based on both the tile and seed
+    tile_seed = hash(tile_file) % (2*32)
+    np.random.seed(tile_seed+seed)
+    
     catalog_data = slics.read_catalogue_pd(tile_file)
     
-    # if the seed is not 0, shuffle the catalog
-    if seed != 0:
-        # Shuffle the last two columns
-        last_two_cols = catalog_data.iloc[:, 2:].sample(frac=1, random_state=seed).reset_index(drop=True)
-        shuffled_catalog = catalog_data.copy()
-        shuffled_catalog['gamma1_sim'] = last_two_cols['gamma1_sim']
-        shuffled_catalog['gamma2_sim'] = last_two_cols['gamma2_sim']
-        catalog_data = shuffled_catalog
+    # # if the seed is not 0, shuffle the catalog
+    # if seed != 0:
+    #     # Shuffle the last two columns
+    #     # last_two_cols = catalog_data.iloc[:, 2:].sample(frac=1, random_state=seed).reset_index(drop=True)
+    #     last_two_cols = catalog_data.iloc[:, 2:].sample(frac=1).reset_index(drop=True)
+    #     shuffled_catalog = catalog_data.copy()
+    #     shuffled_catalog['gamma1_sim'] = last_two_cols['gamma1_sim']
+    #     shuffled_catalog['gamma2_sim'] = last_two_cols['gamma2_sim']
+    #     catalog_data = shuffled_catalog
     
     ra = catalog_data['RA']
     dec = catalog_data['Dec']
@@ -62,6 +71,12 @@ def compute_statistics(args):
     # sigma_noise = np.ones_like(galmap) * SHAPE_NOISE / np.sqrt(2 * N_GAL)
     
     e1map, e2map = bin2d(x, y, npix=(Nx, Ny), v=(g1_sim, g2_sim)) 
+    
+    # rand_e1 = np.random.randn(*e1map.shape)
+    # rand_e2 = np.random.randn(*e2map.shape)
+    # noise_e1 = rand_e1 * sigma_noise
+    # noise_e2 = rand_e2 * sigma_noise
+
     noise_e1 = np.random.randn(*e1map.shape) * sigma_noise
     noise_e2 = np.random.randn(*e2map.shape) * sigma_noise
     
@@ -90,7 +105,7 @@ def compute_statistics(args):
         ks = M.gamma_to_cf_kappa(e1map,-e2map) 
         ks = ks.real
         mass_map = ks
-        
+    
     if method == 'ksi':
         M = massmap2d(name='mass')
         M.init_massmap(d.nx, d.ny)
@@ -116,7 +131,8 @@ def compute_statistics(args):
     if method == 'mca':
         M = massmap2d(name='mass')
         M.init_massmap(d.nx, d.ny)
-        M.DEF_niter = 10
+        M.DEF_niter = 50
+        M.niter_debias = 30
         M.Verbose = False
         ps1d = readfits('/home/tersenov/shear-pipe-peaks/input/exp_wiener_miceDSV_signal_powspec.fits')
         d.ps1d = ps1d        
@@ -133,7 +149,7 @@ def compute_statistics(args):
     peak_counts_single = H.Mono_Peaks_Count
     H.get_wtpeaks(Mask=mask)
     peak_counts_multi = H.Peaks_Count
-    H.get_wtl1(NBINS_L1*2, Mask=mask, min_snr=-6, max_snr=6)
+    H.get_wtl1(NBINS_L1*2, Mask=mask, min_snr=-2, max_snr=6)
     l1norm_histogram = H.l1norm
 
     return peak_counts_single, peak_counts_multi, l1norm_histogram
@@ -224,7 +240,7 @@ if __name__ == "__main__":
     
     SEED = int(args.realization)
     # set the seed for the random number generator to be used in the script
-    np.random.seed(SEED)
+    # np.random.seed(SEED)
 
 
     compute_cov_datavectors(

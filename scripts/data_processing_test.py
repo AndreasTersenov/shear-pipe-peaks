@@ -22,7 +22,7 @@ SIZE_Y_DEG = 10.
 PIX_ARCMIN = 1.
 SHAPE_NOISE = 0.44
 NSCALES = 6
-MIN_SNR = -2
+MIN_SNR = -0.4
 MAX_SNR = 6
 NBINS = 21
 NBINS_L1 = 20
@@ -153,7 +153,8 @@ def make_mass_map(e1map, e2map, mask, sigma_noise, method='ks'):
     if method == 'mca':
         M = massmap2d(name='mass')
         M.init_massmap(d.nx, d.ny)
-        M.DEF_niter = 30
+        M.DEF_niter = 50
+        M.niter_debias = 30
         M.Verbose = False
         ps1d = readfits('/home/tersenov/shear-pipe-peaks/input/exp_wiener_miceDSV_signal_powspec.fits')
         d.ps1d = ps1d        
@@ -194,7 +195,7 @@ def summary_statistics(mass_map, sigma_noise, mask, nscales=NSCALES, min_snr=MIN
     H.get_mono_scale_peaks(mass_map, sigma_noise, smoothing_sigma=12, mask=mask)
     H.get_wtpeaks(Mask=mask)
     pc = H.Peaks_Count
-    H.get_wtl1(nbins_l1*2, Mask=mask, min_snr=-6, max_snr=6)
+    H.get_wtl1(nbins_l1*2, Mask=mask, min_snr=-2, max_snr=6)
 
     return H.Mono_Peaks_Count, H.Peaks_Count, H.l1norm
 
